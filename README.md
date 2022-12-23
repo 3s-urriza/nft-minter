@@ -1,7 +1,7 @@
 # Foundry Template [![Github Actions][gha-badge]][gha] [![Foundry][foundry-badge]][foundry] [![License: MIT][license-badge]][license]
 
-[gha]: https://github.com/threesigmaxyz/foundry-template/actions
-[gha-badge]: https://github.com/threesigmaxyz/foundry-template/actions/workflows/ci.yml/badge.svg
+[gha]: https://github.com/3s-urriza/nft-minter/actions
+[gha-badge]: https://github.com/3s-urriza/nft-minter/actions/workflows/ci.yml/badge.svg
 [foundry]: https://getfoundry.sh/
 [foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
 [license]: https://opensource.org/licenses/MIT
