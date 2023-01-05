@@ -30,7 +30,7 @@ make install
 If this is your first time with Foundry, check out the [installation](https://github.com/foundry-rs/foundry#installation) instructions.
 
 ## Blueprint
-
+ 
 ```ml
 lib
 ├─ forge-std — https://github.com/foundry-rs/forge-std

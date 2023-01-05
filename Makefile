@@ -15,7 +15,8 @@ remove :;
 # Install dependencies
 install :;
 	@forge install foundry-rs/forge-std@master --no-commit && \
-	forge install openzeppelin/openzeppelin-contracts@master --no-commit
+	forge install openzeppelin/openzeppelin-contracts@master --no-commit && \
+	forge install https://github.com/LayerZero-Labs/solidity-examples --no-commit
 
 # Update dependencies
 update :;
