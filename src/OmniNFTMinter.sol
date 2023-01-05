@@ -3,65 +3,70 @@ pragma solidity ^0.8.16;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "src/OmniNFT.sol";
 
 /**
-@title OmniNFTMinter
-@dev Contract that is responsible to mint OmniNFTs.
+ * @title OmniNFTMinter
+ * @dev Contract that is responsible to mint OmniNFTs.
  */
 contract OmniNFTMinter is Ownable {
     using MerkleProof for bytes32[];
 
     // Enum to store every possible state of the Sales
-    enum SaleState { UNSTARTED, ONGOING, FINISHED }
+    enum SaleState {
+        UNSTARTED,
+        ONGOING,
+        FINISHED
+    }
 
     /**
-    @dev Event to be emitted whenever a new Sale is added
-    @param saleId ID of the Sale
-    @param merkleRoot Merkle root of the Sale
-    @param initialDate Initial date of the Sale
-    @param nftTypeLimits Maximum number of NFTs per type that can be minted on this Sale
-    */
+     * @dev Event to be emitted whenever a new Sale is added
+     * @param saleId ID of the Sale
+     * @param merkleRoot Merkle root of the Sale
+     * @param initialDate Initial date of the Sale
+     * @param nftTypeLimits Maximum number of NFTs per type that can be minted on this Sale
+     */
     event LogSaleAdded(uint32 saleId, bytes32 merkleRoot, uint64 initialDate, uint32[] nftTypeLimits);
 
     /**
-    @dev Event to be emitted whenever a new Sale is edited
-    @param saleId ID of the Sale
-    @param merkleRoot Merkle root of the Sale
-    @param initialDate Initial date of the Sale
-    @param nftTypeLimits Maximum number of NFTs per type that can be minted on this Sale
-    */
+     * @dev Event to be emitted whenever a new Sale is edited
+     * @param saleId ID of the Sale
+     * @param merkleRoot Merkle root of the Sale
+     * @param initialDate Initial date of the Sale
+     * @param nftTypeLimits Maximum number of NFTs per type that can be minted on this Sale
+     */
     event LogSaleEdited(uint32 saleId, bytes32 merkleRoot, uint64 initialDate, uint32[] nftTypeLimits);
 
     /**
-    @dev Event to be emitted whenever a new Sale is removed
-    @param saleId ID of the Sale
-    */
+     * @dev Event to be emitted whenever a new Sale is removed
+     * @param saleId ID of the Sale
+     */
     event LogSaleRemoved(uint32 saleId);
 
-    // Struct to manage the information regarding the NFT types 
+    // Struct to manage the information regarding the NFT types
     struct NftType {
-        uint32 quantity;    // Amount of NFTs available to mint of this type
-        uint32 price;       // Price of a NFT of this type
-        uint32 nextNftId;   // ID for the next minted NFT of this type
+        uint32 quantity; // Amount of NFTs available to mint of this type
+        uint32 price; // Price of a NFT of this type
+        uint32 nextNftId; // ID for the next minted NFT of this type
     }
 
     // Struct to manage the information regarding the Sales
     struct Sale {
-        bytes32 merkleRoot;         // Merkle root of the Sale (Management of whitelisted addresses)
-        uint64 initialDate;         // Initial date of the Sale
-        uint32[] nftTypeLimits;     // Array that stores the maximum number of NFTs per type that can be minted on this Sale
-        uint32 prevId;              // ID of the previous Sale
-        uint32 nextId;              // ID of the next Sale 
+        bytes32 merkleRoot; // Merkle root of the Sale (Management of whitelisted addresses)
+        uint64 initialDate; // Initial date of the Sale
+        uint32[] nftTypeLimits; // Array that stores the maximum number of NFTs per type that can be minted on this Sale
+        uint32 prevId; // ID of the previous Sale
+        uint32 nextId; // ID of the next Sale
     }
 
     // Struct to manage a linked list of Sales
     struct SalesData {
-        uint32 first;                   // ID of the first Sale                
-        uint32 last;                    // ID of the last Sale
-        uint32 size;                    // Size of the linked list
-        mapping(uint32 => Sale) sales;  // Mapping with all the Sales
+        uint32 first; // ID of the first Sale
+        uint32 last; // ID of the last Sale
+        uint32 size; // Size of the linked list
+        mapping(uint32 => Sale) sales; // Mapping with all the Sales
     }
 
     // ONFT instance
@@ -71,7 +76,7 @@ contract OmniNFTMinter is Ownable {
     NftType[] internal _nftTypes;
 
     // Variable to store the ongoing saleId
-    uint32 internal _ongoingSaleId;
+    uint32 internal _ongoingSaleId = 1;
 
     // Mapping to store the NFTs minted per type and per user in every Sale
     // mapping(saleId -> mapping(to -> nftsMinted[]))
@@ -82,34 +87,46 @@ contract OmniNFTMinter is Ownable {
 
     // *** Modifiers ***
 
+    /**
+     * @dev Modifier that checks if a Sale exists
+     * @param saleId ID of the Sale
+     */
     modifier saleExists(uint32 saleId) {
-        require(_salesData.sales[saleId].nftTypeLimits.length != 0, "The Sale does not exist."); 
+        require(_salesData.sales[saleId].nftTypeLimits.length != 0, "The Sale does not exist.");
         _;
     }
 
+    /**
+     * @dev Modifier that checks if a Sale is modifiable (It is not ongoing or has already finished)
+     * @param saleId ID of the Sale
+     */
     modifier saleModifiable(uint32 saleId) {
         require(checkSaleStatus(saleId) == SaleState.UNSTARTED, "The Sale is ongoing or has already finished.");
         _;
     }
 
     constructor(
-        uint32[] memory nftTypeQuantities, 
-        uint32[] memory nftTypePrices, 
-        bytes32[] memory saleMerkleRoots, 
-        uint64[] memory saleInitialDates, 
+        uint32[] memory nftTypeQuantities,
+        uint32[] memory nftTypePrices,
+        bytes32[] memory saleMerkleRoots,
+        uint64[] memory saleInitialDates,
         uint32[][] memory saleNftTypeLimits,
-        address lzEndpoint) 
-    {
+        address lzEndpoint
+    ) {
         // Check if the length of the parameters it's the same, depending if it's for the NfyTypes or the Sales
         uint32 numberOfNftTypes = uint32(nftTypeQuantities.length);
         require(numberOfNftTypes != 0, "");
-        require(numberOfNftTypes == nftTypePrices.length, 
-            "The NFT quantities and prices must have the same number of elements.");
-        
+        require(
+            numberOfNftTypes == nftTypePrices.length,
+            "The NFT quantities and prices must have the same number of elements."
+        );
+
         uint32 numberOfSales = uint32(saleMerkleRoots.length);
         require(numberOfSales != 0, "");
-        require(numberOfSales == saleInitialDates.length && numberOfSales == saleNftTypeLimits.length, 
-            "The Sales merkle roots, intial dates and NFT type limits must have the same number of elements.");
+        require(
+            numberOfSales == saleInitialDates.length && numberOfSales == saleNftTypeLimits.length,
+            "The Sales merkle roots, intial dates and NFT type limits must have the same number of elements."
+        );
 
         // Initialize the NftTypes and the Sales
         initializeNftTypes(nftTypeQuantities, nftTypePrices);
@@ -123,18 +140,18 @@ contract OmniNFTMinter is Ownable {
     // *** Initialization ***
 
     /**
-    @dev Initializes the _nftTypes with the given parameters.
-    @param quantities Quantities of the NFT types.
-    @param prices Prices of the NFT types.
+     * @dev Initializes the _nftTypes with the given parameters.
+     * @param quantities Quantities of the NFT types.
+     * @param prices Prices of the NFT types.
      */
     function initializeNftTypes(uint32[] memory quantities, uint32[] memory prices) internal {
         uint32 idCounter = 1;
         for (uint32 i = 0; i < quantities.length; i++) {
             _nftTypes.push(
                 NftType(
-                    quantities[i],      
-                    prices[i],         
-                    idCounter   // nextNftId
+                    quantities[i],
+                    prices[i],
+                    idCounter // nextNftId
                 )
             );
             idCounter += quantities[i];
@@ -142,43 +159,46 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Initializes the sales with the given parameters.
-    @param merkleRoots Durations of the sales.
-    @param initialDates Initial dates of the sales.
-    @param nftTypeLimits NFT Type limits of the sales.
+     * @dev Initializes the sales with the given parameters.
+     * @param merkleRoots Durations of the sales.
+     * @param initialDates Initial dates of the sales.
+     * @param nftTypeLimits NFT Type limits of the sales.
      */
-    function initializeSales(bytes32[] memory merkleRoots, uint64[] memory initialDates, uint32[][] memory nftTypeLimits) internal {
+    function initializeSales(
+        bytes32[] memory merkleRoots,
+        uint64[] memory initialDates,
+        uint32[][] memory nftTypeLimits
+    ) internal {
         uint32 numberOfSales = uint32(merkleRoots.length);
         _salesData.size = numberOfSales;
         _salesData.first = 1;
         _salesData.last = numberOfSales;
-        
+
         // We are asumming that the initial dates are inserted in order
         for (uint32 i = 1; i <= numberOfSales; i++) {
-            _salesData.sales[i] = 
-                Sale(
-                    merkleRoots[i-1],         
-                    initialDates[i-1],        
-                    nftTypeLimits[i-1],       
-                    i == 1 ? 0 : i - 1,              // prevId: Edge case -> First element
-                    i == numberOfSales ? 0 : i + 1   // nextId: Edge case -> Last element
-                );
+            _salesData.sales[i] = Sale(
+                merkleRoots[i - 1],
+                initialDates[i - 1],
+                nftTypeLimits[i - 1],
+                i == 1 ? 0 : i - 1, // prevId: Edge case -> First element
+                i == numberOfSales ? 0 : i + 1 // nextId: Edge case -> Last element
+            );
         }
     }
 
     // *** Sales Management ***
 
     /**
-    @dev Adds a new Sale.
-    @param saleId ID for the new Sale
-    @param merkleRoot Merkle Root of the sale.
-    @param initialDate Initial date of the sale.
-    @param nftTypeLimits NFT Type limits of the sale.
+     * @dev Adds a new Sale.
+     * @param saleId ID for the new Sale
+     * @param merkleRoot Merkle Root of the sale.
+     * @param initialDate Initial date of the sale.
+     * @param nftTypeLimits NFT Type limits of the sale.
      */
     function addSale(
-        uint32 saleId, 
-        bytes32 merkleRoot, 
-        uint64 initialDate, 
+        uint32 saleId,
+        bytes32 merkleRoot,
+        uint64 initialDate,
         uint32[] calldata nftTypeLimits,
         uint32 _prevId,
         uint32 _nextId
@@ -187,12 +207,18 @@ contract OmniNFTMinter is Ownable {
         checkSales();
 
         // Check if the parameters are correct
-        require(saleId != 0, "The Sale ID cannot be 0.");
-        require(_salesData.sales[saleId].nftTypeLimits.length == 0, "The Sale ID cannot be the same as an existing Sale.");
-        require(merkleRoot != bytes32(0), "The merkle root cannot be empty.");
-        require(initialDate > block.timestamp, "The initial date cannot be in the past.");
-        require(checkInitialDates(0, initialDate), "The initial date cannot be the same as an existing Sale.");
-        require(nftTypeLimits.length == _nftTypes.length, "The NFT type limits number should be the same as the stored ones.");
+        require(saleId != 0, "ADD SALE: The Sale ID cannot be 0.");
+        require(
+            _salesData.sales[saleId].nftTypeLimits.length == 0,
+            "ADD SALE: The Sale ID cannot be the same as an existing Sale."
+        );
+        require(merkleRoot != bytes32(0), "ADD SALE: The merkle root cannot be empty.");
+        require(initialDate > block.timestamp, "ADD SALE: The initial date cannot be in the past.");
+        require(checkInitialDates(0, initialDate), "ADD SALE: The initial date cannot be the same as an existing Sale.");
+        require(
+            nftTypeLimits.length == _nftTypes.length,
+            "ADD SALE: The NFT type limits number should be the same as the stored ones."
+        );
 
         _insert(saleId, merkleRoot, initialDate, nftTypeLimits, _prevId, _nextId);
 
@@ -200,26 +226,32 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Edits an existing Sale.
-    @param saleId ID of the sale.
-    @param merkleRoot Merkle root of the sale.
-    @param initialDate Initial date of the sale.
-    @param nftTypeLimits NFT Type limits of the sale.
+     * @dev Edits an existing Sale.
+     * @param saleId ID of the sale.
+     * @param merkleRoot Merkle root of the sale.
+     * @param initialDate Initial date of the sale.
+     * @param nftTypeLimits NFT Type limits of the sale.
      */
-    function editSale(
-        uint32 saleId, 
-        bytes32 merkleRoot, 
-        uint64 initialDate, 
-        uint32[] calldata nftTypeLimits
-    ) external onlyOwner saleExists(saleId) saleModifiable(saleId) {
+    function editSale(uint32 saleId, bytes32 merkleRoot, uint64 initialDate, uint32[] calldata nftTypeLimits)
+        external
+        onlyOwner
+        saleExists(saleId)
+        saleModifiable(saleId)
+    {
         // Update the ongoing Sale if needed. Also needed in order to check if the initialDate parameter is valid.
         checkSales();
 
         // Check if the parameters are correct
-        require(merkleRoot != bytes32(0), "The merkle root can not be empty.");
-        require(initialDate > block.timestamp, "The initial date cannot be in the past.");
-        require(checkInitialDates(saleId, initialDate), "The initial date cannot be the same as an existing Sale.");
-        require(nftTypeLimits.length == _nftTypes.length, "The NFT type limits number should be the same as the stored ones.");
+        require(merkleRoot != bytes32(0), "EDIT SALE: The merkle root can not be empty.");
+        require(initialDate > block.timestamp, "EDIT SALE: The initial date cannot be in the past.");
+        require(
+            checkInitialDates(saleId, initialDate),
+            "EDIT SALE: The initial date cannot be the same as an existing Sale."
+        );
+        require(
+            nftTypeLimits.length == _nftTypes.length,
+            "EDIT SALE: The NFT type limits number should be the same as the stored ones."
+        );
 
         _remove(saleId);
         _insert(saleId, merkleRoot, initialDate, nftTypeLimits, saleId, saleId);
@@ -228,8 +260,8 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Removes an existing Sale.
-    @param saleId ID of the Sale.
+     * @dev Removes an existing Sale.
+     * @param saleId ID of the Sale.
      */
     function removeSale(uint32 saleId) external onlyOwner saleExists(saleId) saleModifiable(saleId) {
         _remove(saleId);
@@ -238,14 +270,13 @@ contract OmniNFTMinter is Ownable {
     }
 
     function _insert(
-        uint32 saleId,        
-        bytes32 merkleRoot, 
-        uint64 initialDate, 
+        uint32 saleId,
+        bytes32 merkleRoot,
+        uint64 initialDate,
         uint32[] calldata nftTypeLimits,
         uint32 _prevId,
         uint32 _nextId
     ) internal {
-
         uint32 prevId = _prevId;
         uint32 nextId = _nextId;
 
@@ -278,7 +309,7 @@ contract OmniNFTMinter is Ownable {
         }
 
         _salesData.size = _salesData.size + 1;
-        
+
         _salesData.sales[saleId].merkleRoot = merkleRoot;
         _salesData.sales[saleId].initialDate = initialDate;
         _salesData.sales[saleId].nftTypeLimits = nftTypeLimits;
@@ -317,10 +348,10 @@ contract OmniNFTMinter is Ownable {
         _salesData.size = _salesData.size - 1;
     }
 
-    /** 
-    @dev Descend the list (bigger initialDates to smaller initialDates) to find a valid insert position
-    @param initialDate Sale's initial Date
-    @param startId Id of Sale to start descending the list from
+    /**
+     * @dev Descend the list (bigger initialDates to smaller initialDates) to find a valid insert position
+     * @param initialDate Sale's initial Date
+     * @param startId Id of Sale to start descending the list from
      */
     function _descendList(uint64 initialDate, uint32 startId) internal view returns (uint32, uint32) {
         // If 'startId' is the first, check if the insert position is before the first
@@ -341,9 +372,9 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Ascend the list (smaller initialDates to bigger initialDates) to find a valid insert position
-    @param initialDate Sale's initial Date
-    @param startId Id of Sale to start ascending the list from
+     * @dev Ascend the list (smaller initialDates to bigger initialDates) to find a valid insert position
+     * @param initialDate Sale's initial Date
+     * @param startId Id of Sale to start ascending the list from
      */
     function _ascendList(uint64 initialDate, uint32 startId) internal view returns (uint32, uint32) {
         // If 'startId' is the last, check if the insert position is after the last
@@ -355,7 +386,7 @@ contract OmniNFTMinter is Ownable {
         uint32 prevId = _salesData.sales[nextId].prevId;
 
         // Ascend the list until we reach the end or until we find a valid insertion point
-        while (nextId !=  0 && !_validInsertPosition(initialDate, prevId, nextId)) {
+        while (nextId != 0 && !_validInsertPosition(initialDate, prevId, nextId)) {
             nextId = _salesData.sales[nextId].prevId;
             prevId = _salesData.sales[nextId].prevId;
         }
@@ -364,10 +395,10 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Check if a pair of Sales is a valid insertion point for a new Sale with the given initialDate
-    @param initialDate Sale's initial Date
-    @param prevId Id of previous Sale for the insert position
-    @param nextId Id of next node for the insert position
+     * @dev Check if a pair of Sales is a valid insertion point for a new Sale with the given initialDate
+     * @param initialDate Sale's initial Date
+     * @param prevId Id of previous Sale for the insert position
+     * @param nextId Id of next node for the insert position
      */
     function _validInsertPosition(uint64 initialDate, uint32 prevId, uint32 nextId) internal view returns (bool) {
         if (prevId == 0 && nextId == 0) {
@@ -381,19 +412,22 @@ contract OmniNFTMinter is Ownable {
             return _salesData.last == prevId && initialDate >= _salesData.sales[prevId].initialDate;
         } else {
             // '(prevId, nextId)' is a valid insert position if they are adjacent Sales and 'initialDate' falls between the two Sales' initialDates
-            return _salesData.sales[prevId].nextId == nextId &&
-                   _salesData.sales[prevId].initialDate <= initialDate &&
-                   initialDate <= _salesData.sales[nextId].initialDate;
+            return _salesData.sales[prevId].nextId == nextId && _salesData.sales[prevId].initialDate <= initialDate
+                && initialDate <= _salesData.sales[nextId].initialDate;
         }
     }
 
     /**
-    @dev Find the insert position for a new Sale with the given initialDate
-    @param initialDate Sale's initial Date
-    @param _prevId Id of previous Sale for the insert position
-    @param _nextId Id of next Sale for the insert position
+     * @dev Find the insert position for a new Sale with the given initialDate
+     * @param initialDate Sale's initial Date
+     * @param _prevId Id of previous Sale for the insert position
+     * @param _nextId Id of next Sale for the insert position
      */
-    function _findInsertPosition(uint64 initialDate, uint32 _prevId, uint32 _nextId) internal view returns (uint32, uint32) {
+    function _findInsertPosition(uint64 initialDate, uint32 _prevId, uint32 _nextId)
+        internal
+        view
+        returns (uint32, uint32)
+    {
         uint32 prevId = _prevId;
         uint32 nextId = _nextId;
 
@@ -427,32 +461,36 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Checks if the list contains a Sale
-    @param saleId ID of the Sale
+     * @dev Checks if the list contains a Sale
+     * @param saleId ID of the Sale
      */
-    function contains(uint32 saleId) public view  returns (bool) {
+    function contains(uint32 saleId) public view returns (bool) {
         return _salesData.sales[saleId].nftTypeLimits.length != 0;
     }
 
     /**
-    @dev Checks the sale status according to its initial date, duration and current timestamp and updates it if needed.
-    @param saleId ID of the Sale
+     * @dev Checks the sale status according to its initial date, duration and current timestamp and updates it if needed.
+     * @param saleId ID of the Sale
      */
-    function checkSaleStatus(uint32 saleId) internal returns (SaleState) {        
-        if (block.timestamp > _salesData.sales[saleId].initialDate && (saleId + 1 == _salesData.size || block.timestamp < _salesData.sales[saleId + 1].initialDate)) { // Sale Ongoing
+    function checkSaleStatus(uint32 saleId) internal returns (SaleState) {
+        if (
+            block.timestamp > _salesData.sales[saleId].initialDate
+                && (saleId + 1 == _salesData.size || block.timestamp < _salesData.sales[saleId + 1].initialDate)
+        ) {
+            // Sale Ongoing
             _ongoingSaleId = saleId;
             return SaleState.ONGOING;
-        }
-        else if (block.timestamp < _salesData.sales[saleId].initialDate) { // Sale Unstarted 
+        } else if (block.timestamp < _salesData.sales[saleId].initialDate) {
+            // Sale Unstarted
             return SaleState.UNSTARTED;
-        }
-        else { // Sale Finished 
+        } else {
+            // Sale Finished
             return SaleState.FINISHED;
         }
     }
 
     /**
-    @dev Checks if the current Sale is still ongoing. If it's not, checks the status of the next and repits until we find one that hasn’t ended.
+     * @dev Checks if the current Sale is still ongoing. If it's not, checks the status of the next and repits until we find one that hasn’t ended.
      */
     function checkSales() internal {
         if (checkSaleStatus(_ongoingSaleId) != SaleState.ONGOING) {
@@ -465,10 +503,10 @@ contract OmniNFTMinter is Ownable {
     }
 
     /**
-    @dev Loops through all the unstarted Sales checking if there is anyone with the same initial Date as the parameter.
-    If it's an edition, the validation should only fail if it's not the edited Sale.
-    @param saleId Sale ID of the edited Sale (If this function is called from the addSale function will receive 0)
-    @param initialDate Initial date on a added/edited Sale.
+     * @dev Loops through all the unstarted Sales checking if there is anyone with the same initial Date as the parameter.
+     * If it's an edition, the validation should only fail if it's not the edited Sale.
+     * @param saleId Sale ID of the edited Sale (If this function is called from the addSale function will receive 0)
+     * @param initialDate Initial date on a added/edited Sale.
      */
     function checkInitialDates(uint32 saleId, uint64 initialDate) internal view returns (bool) {
         for (uint32 i = _ongoingSaleId; i <= _salesData.size; i++) {
@@ -479,6 +517,5 @@ contract OmniNFTMinter is Ownable {
         return true;
     }
 
-
-
+    
 }
