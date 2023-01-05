@@ -516,6 +516,4 @@ contract OmniNFTMinter is Ownable {
         }
         return true;
     }
-
-    
 }

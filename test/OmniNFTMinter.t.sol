@@ -491,6 +491,4 @@ contract OmniNFTMinterTest is Test {
 
         vm.stopPrank();
     }
-
-    
 }
